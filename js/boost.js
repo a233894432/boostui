@@ -977,6 +977,130 @@ Zepto.noConflict = function(deep){
 
 window.Zepto = window.$ = Zepto;
 
+//fx
+//     Zepto.js
+//     (c) 2010-2015 Thomas Fuchs
+//     Zepto.js may be freely distributed under the MIT license.
+
+;(function($, undefined){
+  var prefix = '', eventPrefix,
+    vendors = { Webkit: 'webkit', Moz: '', O: 'o' },
+    testEl = document.createElement('div'),
+    supportedTransforms = /^((translate|rotate|scale)(X|Y|Z|3d)?|matrix(3d)?|perspective|skew(X|Y)?)$/i,
+    transform,
+    transitionProperty, transitionDuration, transitionTiming, transitionDelay,
+    animationName, animationDuration, animationTiming, animationDelay,
+    cssReset = {}
+
+  function dasherize(str) { return str.replace(/([a-z])([A-Z])/, '$1-$2').toLowerCase() }
+  function normalizeEvent(name) { return eventPrefix ? eventPrefix + name : name.toLowerCase() }
+
+  $.each(vendors, function(vendor, event){
+    if (testEl.style[vendor + 'TransitionProperty'] !== undefined) {
+      prefix = '-' + vendor.toLowerCase() + '-'
+      eventPrefix = event
+      return false
+    }
+  })
+
+  transform = prefix + 'transform'
+  cssReset[transitionProperty = prefix + 'transition-property'] =
+  cssReset[transitionDuration = prefix + 'transition-duration'] =
+  cssReset[transitionDelay    = prefix + 'transition-delay'] =
+  cssReset[transitionTiming   = prefix + 'transition-timing-function'] =
+  cssReset[animationName      = prefix + 'animation-name'] =
+  cssReset[animationDuration  = prefix + 'animation-duration'] =
+  cssReset[animationDelay     = prefix + 'animation-delay'] =
+  cssReset[animationTiming    = prefix + 'animation-timing-function'] = ''
+
+  $.fx = {
+    off: (eventPrefix === undefined && testEl.style.transitionProperty === undefined),
+    speeds: { _default: 400, fast: 200, slow: 600 },
+    cssPrefix: prefix,
+    transitionEnd: normalizeEvent('TransitionEnd'),
+    animationEnd: normalizeEvent('AnimationEnd')
+  }
+
+  $.fn.animate = function(properties, duration, ease, callback, delay){
+    if ($.isFunction(duration))
+      callback = duration, ease = undefined, duration = undefined
+    if ($.isFunction(ease))
+      callback = ease, ease = undefined
+    if ($.isPlainObject(duration))
+      ease = duration.easing, callback = duration.complete, delay = duration.delay, duration = duration.duration
+    if (duration) duration = (typeof duration == 'number' ? duration :
+                    ($.fx.speeds[duration] || $.fx.speeds._default)) / 1000
+    if (delay) delay = parseFloat(delay) / 1000
+    return this.anim(properties, duration, ease, callback, delay)
+  }
+
+  $.fn.anim = function(properties, duration, ease, callback, delay){
+    var key, cssValues = {}, cssProperties, transforms = '',
+        that = this, wrappedCallback, endEvent = $.fx.transitionEnd,
+        fired = false
+
+    if (duration === undefined) duration = $.fx.speeds._default / 1000
+    if (delay === undefined) delay = 0
+    if ($.fx.off) duration = 0
+
+    if (typeof properties == 'string') {
+      // keyframe animation
+      cssValues[animationName] = properties
+      cssValues[animationDuration] = duration + 's'
+      cssValues[animationDelay] = delay + 's'
+      cssValues[animationTiming] = (ease || 'linear')
+      endEvent = $.fx.animationEnd
+    } else {
+      cssProperties = []
+      // CSS transitions
+      for (key in properties)
+        if (supportedTransforms.test(key)) transforms += key + '(' + properties[key] + ') '
+        else cssValues[key] = properties[key], cssProperties.push(dasherize(key))
+
+      if (transforms) cssValues[transform] = transforms, cssProperties.push(transform)
+      if (duration > 0 && typeof properties === 'object') {
+        cssValues[transitionProperty] = cssProperties.join(', ')
+        cssValues[transitionDuration] = duration + 's'
+        cssValues[transitionDelay] = delay + 's'
+        cssValues[transitionTiming] = (ease || 'linear')
+      }
+    }
+
+    wrappedCallback = function(event){
+      if (typeof event !== 'undefined') {
+        if (event.target !== event.currentTarget) return // makes sure the event didn't bubble from "below"
+        $(event.target).unbind(endEvent, wrappedCallback)
+      } else
+        $(this).unbind(endEvent, wrappedCallback) // triggered by setTimeout
+
+      fired = true
+      $(this).css(cssReset)
+      callback && callback.call(this)
+    }
+    if (duration > 0){
+      this.bind(endEvent, wrappedCallback)
+      // transitionEnd is not always firing on older Android phones
+      // so make sure it gets fired
+      setTimeout(function(){
+        if (fired) return
+        wrappedCallback.call(that)
+      }, ((duration + delay) * 1000) + 25)
+    }
+
+    // trigger page reflow so new elements can animate
+    this.size() && this.get(0).clientLeft
+
+    this.css(cssValues)
+
+    if (duration <= 0) setTimeout(function() {
+      that.each(function(){ wrappedCallback.call(this) })
+    }, 0)
+
+    return this
+  }
+
+  testEl = null
+})(Zepto)
     //     Zepto.js
 //     (c) 2010-2015 Thomas Fuchs
 //     Zepto.js may be freely distributed under the MIT license.
@@ -1002,6 +1126,848 @@ var BLENDURL = 'http://cp01-rdqa04-dev111.cp01.baidu.com:8042/boost/test/blendui
 
   $.dynamicLoad = dynamicLoad;
 })(Zepto)
+
+    ;(function () {
+	'use strict';
+
+	/**
+	 * @preserve FastClick: polyfill to remove click delays on browsers with touch UIs.
+	 *
+	 * @codingstandard ftlabs-jsv2
+	 * @copyright The Financial Times Limited [All Rights Reserved]
+	 * @license MIT License (see LICENSE.txt)
+	 */
+
+	/*jslint browser:true, node:true*/
+	/*global define, Event, Node*/
+
+
+	/**
+	 * Instantiate fast-clicking listeners on the specified layer.
+	 *
+	 * @constructor
+	 * @param {Element} layer The layer to listen on
+	 * @param {Object} [options={}] The options to override the defaults
+	 */
+	function FastClick(layer, options) {
+		var oldOnClick;
+
+		options = options || {};
+
+		/**
+		 * Whether a click is currently being tracked.
+		 *
+		 * @type boolean
+		 */
+		this.trackingClick = false;
+
+
+		/**
+		 * Timestamp for when click tracking started.
+		 *
+		 * @type number
+		 */
+		this.trackingClickStart = 0;
+
+
+		/**
+		 * The element being tracked for a click.
+		 *
+		 * @type EventTarget
+		 */
+		this.targetElement = null;
+
+
+		/**
+		 * X-coordinate of touch start event.
+		 *
+		 * @type number
+		 */
+		this.touchStartX = 0;
+
+
+		/**
+		 * Y-coordinate of touch start event.
+		 *
+		 * @type number
+		 */
+		this.touchStartY = 0;
+
+
+		/**
+		 * ID of the last touch, retrieved from Touch.identifier.
+		 *
+		 * @type number
+		 */
+		this.lastTouchIdentifier = 0;
+
+
+		/**
+		 * Touchmove boundary, beyond which a click will be cancelled.
+		 *
+		 * @type number
+		 */
+		this.touchBoundary = options.touchBoundary || 10;
+
+
+		/**
+		 * The FastClick layer.
+		 *
+		 * @type Element
+		 */
+		this.layer = layer;
+
+		/**
+		 * The minimum time between tap(touchstart and touchend) events
+		 *
+		 * @type number
+		 */
+		this.tapDelay = options.tapDelay || 200;
+
+		/**
+		 * The maximum time for a tap
+		 *
+		 * @type number
+		 */
+		this.tapTimeout = options.tapTimeout || 700;
+
+		if (FastClick.notNeeded(layer)) {
+			return;
+		}
+
+		// Some old versions of Android don't have Function.prototype.bind
+		function bind(method, context) {
+			return function() { return method.apply(context, arguments); };
+		}
+
+
+		var methods = ['onMouse', 'onClick', 'onTouchStart', 'onTouchMove', 'onTouchEnd', 'onTouchCancel'];
+		var context = this;
+		for (var i = 0, l = methods.length; i < l; i++) {
+			context[methods[i]] = bind(context[methods[i]], context);
+		}
+
+		// Set up event handlers as required
+		if (deviceIsAndroid) {
+			layer.addEventListener('mouseover', this.onMouse, true);
+			layer.addEventListener('mousedown', this.onMouse, true);
+			layer.addEventListener('mouseup', this.onMouse, true);
+		}
+
+		layer.addEventListener('click', this.onClick, true);
+		layer.addEventListener('touchstart', this.onTouchStart, false);
+		layer.addEventListener('touchmove', this.onTouchMove, false);
+		layer.addEventListener('touchend', this.onTouchEnd, false);
+		layer.addEventListener('touchcancel', this.onTouchCancel, false);
+
+		// Hack is required for browsers that don't support Event#stopImmediatePropagation (e.g. Android 2)
+		// which is how FastClick normally stops click events bubbling to callbacks registered on the FastClick
+		// layer when they are cancelled.
+		if (!Event.prototype.stopImmediatePropagation) {
+			layer.removeEventListener = function(type, callback, capture) {
+				var rmv = Node.prototype.removeEventListener;
+				if (type === 'click') {
+					rmv.call(layer, type, callback.hijacked || callback, capture);
+				} else {
+					rmv.call(layer, type, callback, capture);
+				}
+			};
+
+			layer.addEventListener = function(type, callback, capture) {
+				var adv = Node.prototype.addEventListener;
+				if (type === 'click') {
+					adv.call(layer, type, callback.hijacked || (callback.hijacked = function(event) {
+						if (!event.propagationStopped) {
+							callback(event);
+						}
+					}), capture);
+				} else {
+					adv.call(layer, type, callback, capture);
+				}
+			};
+		}
+
+		// If a handler is already declared in the element's onclick attribute, it will be fired before
+		// FastClick's onClick handler. Fix this by pulling out the user-defined handler function and
+		// adding it as listener.
+		if (typeof layer.onclick === 'function') {
+
+			// Android browser on at least 3.2 requires a new reference to the function in layer.onclick
+			// - the old one won't work if passed to addEventListener directly.
+			oldOnClick = layer.onclick;
+			layer.addEventListener('click', function(event) {
+				oldOnClick(event);
+			}, false);
+			layer.onclick = null;
+		}
+	}
+
+	/**
+	* Windows Phone 8.1 fakes user agent string to look like Android and iPhone.
+	*
+	* @type boolean
+	*/
+	var deviceIsWindowsPhone = navigator.userAgent.indexOf("Windows Phone") >= 0;
+
+	/**
+	 * Android requires exceptions.
+	 *
+	 * @type boolean
+	 */
+	var deviceIsAndroid = navigator.userAgent.indexOf('Android') > 0 && !deviceIsWindowsPhone;
+
+
+	/**
+	 * iOS requires exceptions.
+	 *
+	 * @type boolean
+	 */
+	var deviceIsIOS = /iP(ad|hone|od)/.test(navigator.userAgent) && !deviceIsWindowsPhone;
+
+
+	/**
+	 * iOS 4 requires an exception for select elements.
+	 *
+	 * @type boolean
+	 */
+	var deviceIsIOS4 = deviceIsIOS && (/OS 4_\d(_\d)?/).test(navigator.userAgent);
+
+
+	/**
+	 * iOS 6.0-7.* requires the target element to be manually derived
+	 *
+	 * @type boolean
+	 */
+	var deviceIsIOSWithBadTarget = deviceIsIOS && (/OS [6-7]_\d/).test(navigator.userAgent);
+
+	/**
+	 * BlackBerry requires exceptions.
+	 *
+	 * @type boolean
+	 */
+	var deviceIsBlackBerry10 = navigator.userAgent.indexOf('BB10') > 0;
+
+	/**
+	 * Determine whether a given element requires a native click.
+	 *
+	 * @param {EventTarget|Element} target Target DOM element
+	 * @returns {boolean} Returns true if the element needs a native click
+	 */
+	FastClick.prototype.needsClick = function(target) {
+		switch (target.nodeName.toLowerCase()) {
+
+		// Don't send a synthetic click to disabled inputs (issue #62)
+		case 'button':
+		case 'select':
+		case 'textarea':
+			if (target.disabled) {
+				return true;
+			}
+
+			break;
+		case 'input':
+
+			// File inputs need real clicks on iOS 6 due to a browser bug (issue #68)
+			if ((deviceIsIOS && target.type === 'file') || target.disabled) {
+				return true;
+			}
+
+			break;
+		case 'label':
+		case 'iframe': // iOS8 homescreen apps can prevent events bubbling into frames
+		case 'video':
+			return true;
+		}
+
+		return (/\bneedsclick\b/).test(target.className);
+	};
+
+
+	/**
+	 * Determine whether a given element requires a call to focus to simulate click into element.
+	 *
+	 * @param {EventTarget|Element} target Target DOM element
+	 * @returns {boolean} Returns true if the element requires a call to focus to simulate native click.
+	 */
+	FastClick.prototype.needsFocus = function(target) {
+		switch (target.nodeName.toLowerCase()) {
+		case 'textarea':
+			return true;
+		case 'select':
+			return !deviceIsAndroid;
+		case 'input':
+			switch (target.type) {
+			case 'button':
+			case 'checkbox':
+			case 'file':
+			case 'image':
+			case 'radio':
+			case 'submit':
+				return false;
+			}
+
+			// No point in attempting to focus disabled inputs
+			return !target.disabled && !target.readOnly;
+		default:
+			return (/\bneedsfocus\b/).test(target.className);
+		}
+	};
+
+
+	/**
+	 * Send a click event to the specified element.
+	 *
+	 * @param {EventTarget|Element} targetElement
+	 * @param {Event} event
+	 */
+	FastClick.prototype.sendClick = function(targetElement, event) {
+		var clickEvent, touch;
+
+		// On some Android devices activeElement needs to be blurred otherwise the synthetic click will have no effect (#24)
+		if (document.activeElement && document.activeElement !== targetElement) {
+			document.activeElement.blur();
+		}
+
+		touch = event.changedTouches[0];
+
+		// Synthesise a click event, with an extra attribute so it can be tracked
+		clickEvent = document.createEvent('MouseEvents');
+		clickEvent.initMouseEvent(this.determineEventType(targetElement), true, true, window, 1, touch.screenX, touch.screenY, touch.clientX, touch.clientY, false, false, false, false, 0, null);
+		clickEvent.forwardedTouchEvent = true;
+		targetElement.dispatchEvent(clickEvent);
+	};
+
+	FastClick.prototype.determineEventType = function(targetElement) {
+
+		//Issue #159: Android Chrome Select Box does not open with a synthetic click event
+		if (deviceIsAndroid && targetElement.tagName.toLowerCase() === 'select') {
+			return 'mousedown';
+		}
+
+		return 'click';
+	};
+
+
+	/**
+	 * @param {EventTarget|Element} targetElement
+	 */
+	FastClick.prototype.focus = function(targetElement) {
+		var length;
+
+		// Issue #160: on iOS 7, some input elements (e.g. date datetime month) throw a vague TypeError on setSelectionRange. These elements don't have an integer value for the selectionStart and selectionEnd properties, but unfortunately that can't be used for detection because accessing the properties also throws a TypeError. Just check the type instead. Filed as Apple bug #15122724.
+		if (deviceIsIOS && targetElement.setSelectionRange && targetElement.type.indexOf('date') !== 0 && targetElement.type !== 'time' && targetElement.type !== 'month') {
+			length = targetElement.value.length;
+			targetElement.setSelectionRange(length, length);
+		} else {
+			targetElement.focus();
+		}
+	};
+
+
+	/**
+	 * Check whether the given target element is a child of a scrollable layer and if so, set a flag on it.
+	 *
+	 * @param {EventTarget|Element} targetElement
+	 */
+	FastClick.prototype.updateScrollParent = function(targetElement) {
+		var scrollParent, parentElement;
+
+		scrollParent = targetElement.fastClickScrollParent;
+
+		// Attempt to discover whether the target element is contained within a scrollable layer. Re-check if the
+		// target element was moved to another parent.
+		if (!scrollParent || !scrollParent.contains(targetElement)) {
+			parentElement = targetElement;
+			do {
+				if (parentElement.scrollHeight > parentElement.offsetHeight) {
+					scrollParent = parentElement;
+					targetElement.fastClickScrollParent = parentElement;
+					break;
+				}
+
+				parentElement = parentElement.parentElement;
+			} while (parentElement);
+		}
+
+		// Always update the scroll top tracker if possible.
+		if (scrollParent) {
+			scrollParent.fastClickLastScrollTop = scrollParent.scrollTop;
+		}
+	};
+
+
+	/**
+	 * @param {EventTarget} targetElement
+	 * @returns {Element|EventTarget}
+	 */
+	FastClick.prototype.getTargetElementFromEventTarget = function(eventTarget) {
+
+		// On some older browsers (notably Safari on iOS 4.1 - see issue #56) the event target may be a text node.
+		if (eventTarget.nodeType === Node.TEXT_NODE) {
+			return eventTarget.parentNode;
+		}
+
+		return eventTarget;
+	};
+
+
+	/**
+	 * On touch start, record the position and scroll offset.
+	 *
+	 * @param {Event} event
+	 * @returns {boolean}
+	 */
+	FastClick.prototype.onTouchStart = function(event) {
+		var targetElement, touch, selection;
+
+		// Ignore multiple touches, otherwise pinch-to-zoom is prevented if both fingers are on the FastClick element (issue #111).
+		if (event.targetTouches.length > 1) {
+			return true;
+		}
+
+		targetElement = this.getTargetElementFromEventTarget(event.target);
+		touch = event.targetTouches[0];
+
+		if (deviceIsIOS) {
+
+			// Only trusted events will deselect text on iOS (issue #49)
+			selection = window.getSelection();
+			if (selection.rangeCount && !selection.isCollapsed) {
+				return true;
+			}
+
+			if (!deviceIsIOS4) {
+
+				// Weird things happen on iOS when an alert or confirm dialog is opened from a click event callback (issue #23):
+				// when the user next taps anywhere else on the page, new touchstart and touchend events are dispatched
+				// with the same identifier as the touch event that previously triggered the click that triggered the alert.
+				// Sadly, there is an issue on iOS 4 that causes some normal touch events to have the same identifier as an
+				// immediately preceeding touch event (issue #52), so this fix is unavailable on that platform.
+				// Issue 120: touch.identifier is 0 when Chrome dev tools 'Emulate touch events' is set with an iOS device UA string,
+				// which causes all touch events to be ignored. As this block only applies to iOS, and iOS identifiers are always long,
+				// random integers, it's safe to to continue if the identifier is 0 here.
+				if (touch.identifier && touch.identifier === this.lastTouchIdentifier) {
+					event.preventDefault();
+					return false;
+				}
+
+				this.lastTouchIdentifier = touch.identifier;
+
+				// If the target element is a child of a scrollable layer (using -webkit-overflow-scrolling: touch) and:
+				// 1) the user does a fling scroll on the scrollable layer
+				// 2) the user stops the fling scroll with another tap
+				// then the event.target of the last 'touchend' event will be the element that was under the user's finger
+				// when the fling scroll was started, causing FastClick to send a click event to that layer - unless a check
+				// is made to ensure that a parent layer was not scrolled before sending a synthetic click (issue #42).
+				this.updateScrollParent(targetElement);
+			}
+		}
+
+		this.trackingClick = true;
+		this.trackingClickStart = event.timeStamp;
+		this.targetElement = targetElement;
+
+		this.touchStartX = touch.pageX;
+		this.touchStartY = touch.pageY;
+
+		// Prevent phantom clicks on fast double-tap (issue #36)
+		if ((event.timeStamp - this.lastClickTime) < this.tapDelay) {
+			event.preventDefault();
+		}
+
+		return true;
+	};
+
+
+	/**
+	 * Based on a touchmove event object, check whether the touch has moved past a boundary since it started.
+	 *
+	 * @param {Event} event
+	 * @returns {boolean}
+	 */
+	FastClick.prototype.touchHasMoved = function(event) {
+		var touch = event.changedTouches[0], boundary = this.touchBoundary;
+
+		if (Math.abs(touch.pageX - this.touchStartX) > boundary || Math.abs(touch.pageY - this.touchStartY) > boundary) {
+			return true;
+		}
+
+		return false;
+	};
+
+
+	/**
+	 * Update the last position.
+	 *
+	 * @param {Event} event
+	 * @returns {boolean}
+	 */
+	FastClick.prototype.onTouchMove = function(event) {
+		if (!this.trackingClick) {
+			return true;
+		}
+
+		// If the touch has moved, cancel the click tracking
+		if (this.targetElement !== this.getTargetElementFromEventTarget(event.target) || this.touchHasMoved(event)) {
+			this.trackingClick = false;
+			this.targetElement = null;
+		}
+
+		return true;
+	};
+
+
+	/**
+	 * Attempt to find the labelled control for the given label element.
+	 *
+	 * @param {EventTarget|HTMLLabelElement} labelElement
+	 * @returns {Element|null}
+	 */
+	FastClick.prototype.findControl = function(labelElement) {
+
+		// Fast path for newer browsers supporting the HTML5 control attribute
+		if (labelElement.control !== undefined) {
+			return labelElement.control;
+		}
+
+		// All browsers under test that support touch events also support the HTML5 htmlFor attribute
+		if (labelElement.htmlFor) {
+			return document.getElementById(labelElement.htmlFor);
+		}
+
+		// If no for attribute exists, attempt to retrieve the first labellable descendant element
+		// the list of which is defined here: http://www.w3.org/TR/html5/forms.html#category-label
+		return labelElement.querySelector('button, input:not([type=hidden]), keygen, meter, output, progress, select, textarea');
+	};
+
+
+	/**
+	 * On touch end, determine whether to send a click event at once.
+	 *
+	 * @param {Event} event
+	 * @returns {boolean}
+	 */
+	FastClick.prototype.onTouchEnd = function(event) {
+		var forElement, trackingClickStart, targetTagName, scrollParent, touch, targetElement = this.targetElement;
+
+		if (!this.trackingClick) {
+			return true;
+		}
+
+		// Prevent phantom clicks on fast double-tap (issue #36)
+		if ((event.timeStamp - this.lastClickTime) < this.tapDelay) {
+			this.cancelNextClick = true;
+			return true;
+		}
+
+		if ((event.timeStamp - this.trackingClickStart) > this.tapTimeout) {
+			return true;
+		}
+
+		// Reset to prevent wrong click cancel on input (issue #156).
+		this.cancelNextClick = false;
+
+		this.lastClickTime = event.timeStamp;
+
+		trackingClickStart = this.trackingClickStart;
+		this.trackingClick = false;
+		this.trackingClickStart = 0;
+
+		// On some iOS devices, the targetElement supplied with the event is invalid if the layer
+		// is performing a transition or scroll, and has to be re-detected manually. Note that
+		// for this to function correctly, it must be called *after* the event target is checked!
+		// See issue #57; also filed as rdar://13048589 .
+		if (deviceIsIOSWithBadTarget) {
+			touch = event.changedTouches[0];
+
+			// In certain cases arguments of elementFromPoint can be negative, so prevent setting targetElement to null
+			targetElement = document.elementFromPoint(touch.pageX - window.pageXOffset, touch.pageY - window.pageYOffset) || targetElement;
+			targetElement.fastClickScrollParent = this.targetElement.fastClickScrollParent;
+		}
+
+		targetTagName = targetElement.tagName.toLowerCase();
+		if (targetTagName === 'label') {
+			forElement = this.findControl(targetElement);
+			if (forElement) {
+				this.focus(targetElement);
+				if (deviceIsAndroid) {
+					return false;
+				}
+
+				targetElement = forElement;
+			}
+		} else if (this.needsFocus(targetElement)) {
+
+			// Case 1: If the touch started a while ago (best guess is 100ms based on tests for issue #36) then focus will be triggered anyway. Return early and unset the target element reference so that the subsequent click will be allowed through.
+			// Case 2: Without this exception for input elements tapped when the document is contained in an iframe, then any inputted text won't be visible even though the value attribute is updated as the user types (issue #37).
+			if ((event.timeStamp - trackingClickStart) > 100 || (deviceIsIOS && window.top !== window && targetTagName === 'input')) {
+				this.targetElement = null;
+				return false;
+			}
+
+			this.focus(targetElement);
+			this.sendClick(targetElement, event);
+
+			// Select elements need the event to go through on iOS 4, otherwise the selector menu won't open.
+			// Also this breaks opening selects when VoiceOver is active on iOS6, iOS7 (and possibly others)
+			if (!deviceIsIOS || targetTagName !== 'select') {
+				this.targetElement = null;
+				event.preventDefault();
+			}
+
+			return false;
+		}
+
+		if (deviceIsIOS && !deviceIsIOS4) {
+
+			// Don't send a synthetic click event if the target element is contained within a parent layer that was scrolled
+			// and this tap is being used to stop the scrolling (usually initiated by a fling - issue #42).
+			scrollParent = targetElement.fastClickScrollParent;
+			if (scrollParent && scrollParent.fastClickLastScrollTop !== scrollParent.scrollTop) {
+				return true;
+			}
+		}
+
+		// Prevent the actual click from going though - unless the target node is marked as requiring
+		// real clicks or if it is in the whitelist in which case only non-programmatic clicks are permitted.
+		if (!this.needsClick(targetElement)) {
+			event.preventDefault();
+			this.sendClick(targetElement, event);
+		}
+
+		return false;
+	};
+
+
+	/**
+	 * On touch cancel, stop tracking the click.
+	 *
+	 * @returns {void}
+	 */
+	FastClick.prototype.onTouchCancel = function() {
+		this.trackingClick = false;
+		this.targetElement = null;
+	};
+
+
+	/**
+	 * Determine mouse events which should be permitted.
+	 *
+	 * @param {Event} event
+	 * @returns {boolean}
+	 */
+	FastClick.prototype.onMouse = function(event) {
+
+		// If a target element was never set (because a touch event was never fired) allow the event
+		if (!this.targetElement) {
+			return true;
+		}
+
+		if (event.forwardedTouchEvent) {
+			return true;
+		}
+
+		// Programmatically generated events targeting a specific element should be permitted
+		if (!event.cancelable) {
+			return true;
+		}
+
+		// Derive and check the target element to see whether the mouse event needs to be permitted;
+		// unless explicitly enabled, prevent non-touch click events from triggering actions,
+		// to prevent ghost/doubleclicks.
+		if (!this.needsClick(this.targetElement) || this.cancelNextClick) {
+
+			// Prevent any user-added listeners declared on FastClick element from being fired.
+			if (event.stopImmediatePropagation) {
+				event.stopImmediatePropagation();
+			} else {
+
+				// Part of the hack for browsers that don't support Event#stopImmediatePropagation (e.g. Android 2)
+				event.propagationStopped = true;
+			}
+
+			// Cancel the event
+			event.stopPropagation();
+			event.preventDefault();
+
+			return false;
+		}
+
+		// If the mouse event is permitted, return true for the action to go through.
+		return true;
+	};
+
+
+	/**
+	 * On actual clicks, determine whether this is a touch-generated click, a click action occurring
+	 * naturally after a delay after a touch (which needs to be cancelled to avoid duplication), or
+	 * an actual click which should be permitted.
+	 *
+	 * @param {Event} event
+	 * @returns {boolean}
+	 */
+	FastClick.prototype.onClick = function(event) {
+		var permitted;
+
+		// It's possible for another FastClick-like library delivered with third-party code to fire a click event before FastClick does (issue #44). In that case, set the click-tracking flag back to false and return early. This will cause onTouchEnd to return early.
+		if (this.trackingClick) {
+			this.targetElement = null;
+			this.trackingClick = false;
+			return true;
+		}
+
+		// Very odd behaviour on iOS (issue #18): if a submit element is present inside a form and the user hits enter in the iOS simulator or clicks the Go button on the pop-up OS keyboard the a kind of 'fake' click event will be triggered with the submit-type input element as the target.
+		if (event.target.type === 'submit' && event.detail === 0) {
+			return true;
+		}
+
+		permitted = this.onMouse(event);
+
+		// Only unset targetElement if the click is not permitted. This will ensure that the check for !targetElement in onMouse fails and the browser's click doesn't go through.
+		if (!permitted) {
+			this.targetElement = null;
+		}
+
+		// If clicks are permitted, return true for the action to go through.
+		return permitted;
+	};
+
+
+	/**
+	 * Remove all FastClick's event listeners.
+	 *
+	 * @returns {void}
+	 */
+	FastClick.prototype.destroy = function() {
+		var layer = this.layer;
+
+		if (deviceIsAndroid) {
+			layer.removeEventListener('mouseover', this.onMouse, true);
+			layer.removeEventListener('mousedown', this.onMouse, true);
+			layer.removeEventListener('mouseup', this.onMouse, true);
+		}
+
+		layer.removeEventListener('click', this.onClick, true);
+		layer.removeEventListener('touchstart', this.onTouchStart, false);
+		layer.removeEventListener('touchmove', this.onTouchMove, false);
+		layer.removeEventListener('touchend', this.onTouchEnd, false);
+		layer.removeEventListener('touchcancel', this.onTouchCancel, false);
+	};
+
+
+	/**
+	 * Check whether FastClick is needed.
+	 *
+	 * @param {Element} layer The layer to listen on
+	 */
+	FastClick.notNeeded = function(layer) {
+		var metaViewport;
+		var chromeVersion;
+		var blackberryVersion;
+		var firefoxVersion;
+
+		// Devices that don't support touch don't need FastClick
+		if (typeof window.ontouchstart === 'undefined') {
+			return true;
+		}
+
+		// Chrome version - zero for other browsers
+		chromeVersion = +(/Chrome\/([0-9]+)/.exec(navigator.userAgent) || [,0])[1];
+
+		if (chromeVersion) {
+
+			if (deviceIsAndroid) {
+				metaViewport = document.querySelector('meta[name=viewport]');
+
+				if (metaViewport) {
+					// Chrome on Android with user-scalable="no" doesn't need FastClick (issue #89)
+					if (metaViewport.content.indexOf('user-scalable=no') !== -1) {
+						return true;
+					}
+					// Chrome 32 and above with width=device-width or less don't need FastClick
+					if (chromeVersion > 31 && document.documentElement.scrollWidth <= window.outerWidth) {
+						return true;
+					}
+				}
+
+			// Chrome desktop doesn't need FastClick (issue #15)
+			} else {
+				return true;
+			}
+		}
+
+		if (deviceIsBlackBerry10) {
+			blackberryVersion = navigator.userAgent.match(/Version\/([0-9]*)\.([0-9]*)/);
+
+			// BlackBerry 10.3+ does not require Fastclick library.
+			// https://github.com/ftlabs/fastclick/issues/251
+			if (blackberryVersion[1] >= 10 && blackberryVersion[2] >= 3) {
+				metaViewport = document.querySelector('meta[name=viewport]');
+
+				if (metaViewport) {
+					// user-scalable=no eliminates click delay.
+					if (metaViewport.content.indexOf('user-scalable=no') !== -1) {
+						return true;
+					}
+					// width=device-width (or less than device-width) eliminates click delay.
+					if (document.documentElement.scrollWidth <= window.outerWidth) {
+						return true;
+					}
+				}
+			}
+		}
+
+		// IE10 with -ms-touch-action: none or manipulation, which disables double-tap-to-zoom (issue #97)
+		if (layer.style.msTouchAction === 'none' || layer.style.touchAction === 'manipulation') {
+			return true;
+		}
+
+		// Firefox version - zero for other browsers
+		firefoxVersion = +(/Firefox\/([0-9]+)/.exec(navigator.userAgent) || [,0])[1];
+
+		if (firefoxVersion >= 27) {
+			// Firefox 27+ does not have tap delay if the content is not zoomable - https://bugzilla.mozilla.org/show_bug.cgi?id=922896
+
+			metaViewport = document.querySelector('meta[name=viewport]');
+			if (metaViewport && (metaViewport.content.indexOf('user-scalable=no') !== -1 || document.documentElement.scrollWidth <= window.outerWidth)) {
+				return true;
+			}
+		}
+
+		// IE11: prefixed -ms-touch-action is no longer supported and it's recomended to use non-prefixed version
+		// http://msdn.microsoft.com/en-us/library/windows/apps/Hh767313.aspx
+		if (layer.style.touchAction === 'none' || layer.style.touchAction === 'manipulation') {
+			return true;
+		}
+
+		return false;
+	};
+
+
+	/**
+	 * Factory method for creating a FastClick object
+	 *
+	 * @param {Element} layer The layer to listen on
+	 * @param {Object} [options={}] The options to override the defaults
+	 */
+	FastClick.attach = function(layer, options) {
+		return new FastClick(layer, options);
+	};
+
+	/*
+	if (typeof define === 'function' && typeof define.amd === 'object' && define.amd) {
+
+		// AMD. Register as an anonymous module.
+		define(function() {
+			return FastClick;
+		});
+	} else if (typeof module !== 'undefined' && module.exports) {
+		module.exports = FastClick.attach;
+		module.exports.FastClick = FastClick;
+	} else {*/
+		window.FastClick = FastClick;
+	//}
+}());
 
     //     Zepto.js
 //     (c) 2010-2015 Thomas Fuchs
@@ -1276,6 +2242,67 @@ var BLENDURL = 'http://cp01-rdqa04-dev111.cp01.baidu.com:8042/boost/test/blendui
   }
 
 })(Zepto)
+
+    /**
+ * 基于Zepto的图片懒加载插件
+ * @author dingquan@baidu.com
+ */
+;(function ($) {
+
+	$.fn.lazyLoad = function (settings) {
+		var $this = $(this);
+		var _winHeight = $(window).height();
+		var _winScrollTop = 0;
+		//var defaultBgImg = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAMAAAAoyzS7AAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyNpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuNS1jMDE0IDc5LjE1MTQ4MSwgMjAxMy8wMy8xMy0xMjowOToxNSAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENDIChNYWNpbnRvc2gpIiB4bXBNTTpJbnN0YW5jZUlEPSJ4bXAuaWlkOjYwMzhDMzczNzBDMTExRTU4NkIwQTM2REZDODA5QzBCIiB4bXBNTTpEb2N1bWVudElEPSJ4bXAuZGlkOjYwMzhDMzc0NzBDMTExRTU4NkIwQTM2REZDODA5QzBCIj4gPHhtcE1NOkRlcml2ZWRGcm9tIHN0UmVmOmluc3RhbmNlSUQ9InhtcC5paWQ6NjAzOEMzNzE3MEMxMTFFNTg2QjBBMzZERkM4MDlDMEIiIHN0UmVmOmRvY3VtZW50SUQ9InhtcC5kaWQ6NjAzOEMzNzI3MEMxMTFFNTg2QjBBMzZERkM4MDlDMEIiLz4gPC9yZGY6RGVzY3JpcHRpb24+IDwvcmRmOlJERj4gPC94OnhtcG1ldGE+IDw/eHBhY2tldCBlbmQ9InIiPz5wOmw/AAAABlBMVEXe3t4AAAB9HcsCAAAADElEQVR42mJgAAgwAAACAAFPbVnhAAAAAElFTkSuQmCC';
+		var defaultBgColor = '#dedede';
+
+		settings = $.extend({
+			threshold: 0,
+			// placeholder: defaultBgImg,
+			backgroundcolor: defaultBgColor
+		}, settings || {});
+
+		lazyLoadPic();
+
+		$(window).on('scroll',function(){
+            _winScrollTop = $(window).scrollTop();
+            lazyLoadPic();
+        });
+
+		function lazyLoadPic () {
+			var originalUrl;
+			var $self;
+			var _offsetTop;
+			$this.each(function () {
+				$self = $(this);
+				originalUrl = $self.data('original');
+
+				if (originalUrl) {
+					_offsetTop = $self.offset().top;
+					if ($self.is('img')) {
+						if ((_offsetTop - settings.threshold) <= (_winHeight + _winScrollTop)) {
+	                        $self.attr('src', originalUrl);
+	                        $self.removeAttr('data-original');
+	                    }
+					}
+					else {
+                        if (settings.placeholder && $self.css('background-image') === 'none') {
+                        	// 指定了占位图片
+                            $self.css('background-image', 'url(' + settings.placeholder + ')');
+                        } else {
+                        	// 默认使用背景色填充
+                        	$self.css('background-color', settings.backgroundcolor);
+                        }
+						if ((_offsetTop - settings.threshold) <= (_winHeight + _winScrollTop)) {
+                            $self.css('background-image','url('+ originalUrl + ')');
+                            $self.removeAttr('data-original');
+                        }
+					}
+				}
+			});
+		}
+	};
+})(Zepto);
 
     //     Zepto.js
 //     (c) 2010-2015 Thomas Fuchs
@@ -2265,6 +3292,47 @@ var BLENDURL = 'http://cp01-rdqa04-dev111.cp01.baidu.com:8042/boost/test/blendui
     ;(function($){/* globals NAMESPACE */
 /* eslint-disable fecs-camelcase */
 /**
+ * @file address 组件
+ */
+
+$.widget('blend.address', {
+    /**
+     * 组件的默认选项
+     */
+    options: {
+        btnClass: NAMESPACE + 'address-btn',
+
+    },
+    /**
+     * _create 创建组件时调用一次
+     */
+    _create: function () {
+        this.btnClass = this.options.btnClass;
+    },
+    /**
+     * _init 初始化的时候调用
+     */
+    _init: function () {
+        var btnItem = this.element.find("." + this.btnClass);
+        if (btnItem.length > 0) {
+            this._initEvent();
+        }
+    },
+    /**
+     * 初始化事件
+     * @private
+     */
+    _initEvent: function () {
+        var $el = this.element;
+       $el.on('click', '.' + this.btnClass, function () {
+            $el.trigger('address:click');
+        })
+    }
+});
+})(Zepto)
+;(function($){/* globals NAMESPACE */
+/* eslint-disable fecs-camelcase */
+/**
  * @file checkbox 组件
  * @author dingquan
  */
@@ -2304,6 +3372,7 @@ $.widget('blend.checkbox', {
      * _init 初始化的时候调用
      */
     _init: function () {
+        FastClick.attach(this.element[0]);
         this._initEvent();
     },
     _checkGroup: function (curElem) {
@@ -2371,14 +3440,14 @@ $.widget('blend.checkbox', {
     _initEvent: function () {
 
         var that = this;
-
-        this.$group.on('tap, click', function () {
+        
+        this.$group.on('click', function () {
             if (that._trigger('beforechecked', null, {})) {
                 var curElem = $(this);
                 that._checkGroup(curElem);
             }
         });
-        this.$label.on('tap, click', function () {
+        this.$label.on('click', function () {
             if (that._trigger('beforechecked', null, {})) {
                 var curElem = that.$group.eq([that.$label.index($(this))]);
                 that._checkGroup(curElem);
@@ -2468,6 +3537,7 @@ $.widget('blend.counter', {
      * @private
      */
     _init: function () {
+        FastClick.attach(this.element[0]);
         var options = this.options;
         var minValue = Number(options.minValue);
         var maxValue = Number(options.maxValue);
@@ -2477,6 +3547,7 @@ $.widget('blend.counter', {
 
         this._initValue();
         this._initEvent();
+
     },
 
     /**
@@ -2512,6 +3583,7 @@ $.widget('blend.counter', {
         var thisObj = this;
         var step = Number(this.options.step);
         step = isNaN(step) ? 1 : step;
+
         this.$plus.on('click', function () {
             thisObj.value(thisObj._value + step);
         });
@@ -2646,7 +3718,8 @@ $.widget('blend.dialog', {
         confirmClass: '',
         maskTapClose: false,    // 点击mask，关闭dialog
         renderType: 0,            // 渲染方式，0 是DOM渲染，1是js渲染,2是自定义
-        btnStatus: 3             // 控制cancel按钮(2)和confirm按钮(1) 的和值
+        btnStatus: 3,             // 控制cancel按钮(2)和confirm按钮(1) 的和值
+        needAnimate: true         // 弹框出现的时候是否需要动画
     },
     /**
      * _create 创建组件时调用一次
@@ -2672,6 +3745,7 @@ $.widget('blend.dialog', {
         this.useCustom = (this.renderType === 2) ? true : false;    // renderType为2表示使用自定义dom
         this.btnStatus = options.btnStatus;
         this.$el = this.element;
+        this.needAnimate = options.needAnimate;
     },
     /**
      * 初始化
@@ -2679,6 +3753,8 @@ $.widget('blend.dialog', {
      */
     _init: function () {
         var me = this;
+
+        //FastClick.attach(this.element[0]);
         /**
          * UIX 环境的初始化
          */
@@ -2689,7 +3765,7 @@ $.widget('blend.dialog', {
              $.dynamicLoad (function() {
                 require(['src/blend'], function (blend) {
                     me._uix = me._createUIXDialog(blend);
-                 
+
                 });
             });
             return;
@@ -2701,6 +3777,7 @@ $.widget('blend.dialog', {
             this.$el = this._createHTMLDialog();
             this._bindEvent();
         }
+
     },
     /**
      * 返回随机的id
@@ -2821,10 +3898,11 @@ $.widget('blend.dialog', {
         $(window).on('orientationchange resize', function () {
             self.setPosition();
         });
-        this.$el.on('tap, click', '.' + (this.cancelClass || NAMESPACE + 'dialog-cancel'), function () {
+
+        this.$el.on('click', '.' + (this.cancelClass || NAMESPACE + 'dialog-cancel'), function () {
             self._trigger('cancel');
             self.autoCloseDone && self.hide();
-        }).on('tap, click', '.' + (this.doneClass || NAMESPACE + 'dialog-confirm'), function () {
+        }).on('click', '.' + (this.doneClass || NAMESPACE + 'dialog-confirm'), function () {
             self._trigger('confirm');
             self.autoCloseDone && self.hide();
         }).on('dialog.close', function () {
@@ -2849,8 +3927,8 @@ $.widget('blend.dialog', {
         var dom = '<div class="' + NAMESPACE + 'dialog-header">' + this.title + '</div>'
                       + '<div class="' + NAMESPACE + 'dialog-body">' + this.content + '</div>'
                       + '<div class="' + NAMESPACE + 'dialog-footer">'
-                         +  '<a href="javascript:void(0);" class="' + this.confirmClass + ' ' + NAMESPACE + 'dialog-confirm ' + NAMESPACE + 'dialog-btn">' + this.confirmText + '</a>'
                          +  '<a href="javascript:void(0);" class="' + this.cancelClass + ' ' + NAMESPACE + 'dialog-cancel ' + NAMESPACE + 'dialog-btn">' + this.cancelText + '</a>'
+                         +  '<a href="javascript:void(0);" class="' + this.confirmClass + ' ' + NAMESPACE + 'dialog-confirm ' + NAMESPACE + 'dialog-btn">' + this.confirmText + '</a>'
                       + '</div>';
         this.$el.append(dom);
         return this.$el;
@@ -2879,6 +3957,9 @@ $.widget('blend.dialog', {
         this.mask(0.5);
         (content) && this.$content.html(content);
         window.setTimeout(function () {
+            if (!self.needAnimate) {
+              self.$el.addClass(NAMESPACE + 'dialog-no-transition');  // 添加class，将过渡时间设置为0
+            }
             self.$el.addClass(NAMESPACE + 'dialog-show');
             self._trigger('show');
             self.lock = false;
@@ -2922,7 +4003,7 @@ $.widget('blend.dialog', {
     mask: function (opacity) {
         var self = this;
         opacity = opacity ? ' style="opacity:' + opacity + ';"' : '';
-        var bodyHeight = document.body.clientHeight || document.body.offsetHeight;
+        var bodyHeight = Math.max(document.body.scrollHeight, document.body.clientHeight, document.documentElement.clientHeight, window.screen.height);
         (this._maskDom = $('<div class="' + NAMESPACE + 'dialog-mask"' + opacity + '></div>')).prependTo(this.$body);
         this._maskDom.css('height', bodyHeight);
         this._maskDom.on('click', function (e) {
@@ -3176,6 +4257,8 @@ $.widget('blend.gallery', {
      */
     _init: function () {
 
+        //FastClick.attach(this.element[0]);
+
         var me = this;
 
         if (IS_UIX) {
@@ -3199,6 +4282,7 @@ $.widget('blend.gallery', {
             this._renderHTML();
             this._bindHandler();
         }
+
     },
     /**
      * 初始化 uix gallery
@@ -3467,6 +4551,7 @@ $.widget('blend.gallery', {
                 // that.mask.style.visibility = "hidden";
                 that.mask.style.display = 'none';
                 that._hideMenu();
+                that.$el.trigger('gallery:close');
             };
         })(this));
 
@@ -3874,7 +4959,6 @@ $.widget('blend.gallery', {
      * @param  {number} val 图片索引
      */
     show: function (val) {
-
         if (IS_UIX && this._uix) {
             this._uix.show();
             return;
@@ -3913,7 +4997,7 @@ $.widget('blend.gallery', {
      */
     hide: function () {
         this.mask.style.display = 'none';
-        this.mask.style.visibility = 'hidden';
+        this.mask.style.visibility = 'hidden';   
     },
     extend: function (plugin, main) {
         if (!main) {
@@ -4421,6 +5505,62 @@ function __genItemIterator(cb) {
 ;(function($){/* globals NAMESPACE */
 /* eslint-disable fecs-camelcase */
 /**
+ * imglist 组件
+ * @file imglist.js
+ */
+'use strict';
+$.widget('blend.imglist', {
+    /**
+     * 组件的默认选项，可以由多重覆盖关系
+     */
+    options: {
+        ratio: ''   // normal/wide/square/small/middle/full
+    },
+    /**
+     * 创建组件调用一次
+     * @private
+     */
+    _create: function () {
+
+        /**
+         * this.element 组件对应的单个 Zepto/jQuery 对象
+         */
+        var $el = this.element;
+        /**
+         * 经过继承的 options
+         */
+        var options = this.options;
+
+        if (options.ratio){
+            var ratioClass = NAMESPACE + 'imglist-';
+            switch (options.ratio) {
+                case 'wide':
+                case 'square':
+                case 'middle':
+                case 'small':
+                case 'full':
+                    ratioClass += options.ratio;
+                    break;
+                default :
+                    ratioClass += 'normal';
+            }
+            options.ratio !== 'full' && $el.find('.' + NAMESPACE + 'imglist-wrapper').addClass(NAMESPACE + 'imglist-theme');
+            this.$li = $el.find('.' + NAMESPACE + 'imglist-wrapper li');
+            this.$li.addClass(ratioClass);
+        }
+    },
+    /**
+     * _init 初始化的时候调用
+     * @private
+     */
+    _init: function () {
+
+    }
+});
+})(Zepto)
+;(function($){/* globals NAMESPACE */
+/* eslint-disable fecs-camelcase */
+/**
  * @file list 组件
  * @author wanghongliang02
  */
@@ -4454,6 +5594,7 @@ $.widget('blend.list', {
      */
     _init: function () {
         var list = this;
+        FastClick.attach(list.element[0]);
         if (!list.options.del) {
             this._destroy();
             return;
@@ -4555,7 +5696,7 @@ $.widget('blend.list', {
         list._endHandler = null;
 
         list.eventInit = false;
-        list.element.off('click.list', '.' + list.deleteBtnClass);
+        list.element.off('tap.list', '.' + list.deleteBtnClass);
         list.element.off('touchstart.list');
     },
     /**
@@ -4665,7 +5806,10 @@ $.widget('blend.loading', {
 	/*配置项*/
     options: {
         loadingClass: '',
-        loadingHtml: ''
+        loadingImgClass:'blend-loading-default',
+        loadingHtml: '',
+        loadingImg: '',
+        loadingWord: '正在载入...'
     },
     /**
      * _create 创建组件时调用一次
@@ -4675,8 +5819,9 @@ $.widget('blend.loading', {
         var options = this.options;
         this.$el = this.element;
         this.$body = $('body');
-        this.loadingHtml = options.loadingHtml || '<div data-' + NAMESPACE + 'widget="loading" class="'
-        + (options.loadingClass || '') + ' ' + NAMESPACE + 'loading"></div>';
+        
+        this.loadingHtml = options.loadingHtml || '<div data-' + NAMESPACE + 'widget="loading" class="' + NAMESPACE + 'loading '+ (options.loadingClass || '') + '"><div class="' + options.loadingImgClass + '"></div><p class="' + NAMESPACE + 'loading-word">' + options.loadingWord + '</p></div>';
+        console.log(this.loadingHtml);
     },
     /**
      * 组件初始化
@@ -4741,7 +5886,8 @@ $.widget('blend.nav', {
         expand: '<i>更多</i>',
         pack: '<i>收起</i>',
         itemClass: NAMESPACE + 'nav-item',
-        row: false
+        row: false,
+        rowHeight: 30
     },
     /**
      * _create 创建组件时调用一次
@@ -4757,7 +5903,9 @@ $.widget('blend.nav', {
         nav.columnClassPre = NAMESPACE + 'nav-column-';
         nav.hideClass = NAMESPACE + 'nav-item-hide';
         nav.noborderClass = NAMESPACE + 'nav-item-no-border';
-        nav.columnRange = [3, 4, 5];
+        nav.columnRange = [2, 3, 4, 5, 6];
+        //
+        nav.expandTaped = false;
     },
     /**
      * _init 初始化的时候调用
@@ -4766,7 +5914,9 @@ $.widget('blend.nav', {
         var nav = this;
         nav._setColumn();
         nav._setRow();
-        
+
+        FastClick.attach(nav.element[0]);
+        /*
         setTimeout(function (){
             if (nav.options.animate) {
                 nav.element.addClass(nav.animateClass);
@@ -4775,7 +5925,7 @@ $.widget('blend.nav', {
                 nav.element.removeClass(nav.animateClass);
             }
         }, 100);
-        
+        */
         if (!nav.inited) {
             nav._initEvent();
             nav.inited = true;
@@ -4787,13 +5937,25 @@ $.widget('blend.nav', {
      */
     _initEvent: function () {
         var nav = this;
+
         nav.element.on('click.nav', '.' + nav.expandClass, function (e) {
+            nav.expandTaped = true;
+            setTimeout(function (){
+                nav.expandTaped = false;
+            }, 500);
+            /*
+            if (!new RegExp(nav.expandClass).test(e.target.parentNode.className)){
+                return ;
+            }*/
             var $this = $(this);
             if ($this.hasClass(nav.expandedClass)) {
                 var height = nav.$items.eq(0).height();
-                //nav.element.css('height', 15 + height * nav.options.row);
-                nav.element.css('height', height * nav.options.row);
-
+                
+                if (nav.options.animate){
+                    nav.element.animate({'height': height * nav.options.row}, 300, "ease-in");
+                }else{
+                    nav.element.css('height', height * nav.options.row);
+                }
                 
                 var max = nav.options.row * nav.options.column;
                 nav.$items.each(function (i) {
@@ -4843,8 +6005,14 @@ $.widget('blend.nav', {
                 var len = nav.$items.length;
                 var row = Math.ceil(len / nav.options.column) + (len % nav.options.column ? 0 : 1);
                 height = nav.$items.eq(0).height() * row;
-                nav.element.css('height', height);
+                if (nav.options.animate){
+                    nav.element.animate({'height': height}, 300, "ease-in");
+                }else{
+                    nav.element.css('height', height);
+                }
+
                 $this.addClass(nav.expandedClass);
+                
                 nav.$items.removeClass(nav.hideClass);
                 $this.html(nav.options.pack);
                 var offset = len % nav.options.column || nav.options.column;
@@ -4863,6 +6031,14 @@ $.widget('blend.nav', {
             }
 
         });
+
+        nav.element.on('click.nav', "." + nav.options.itemClass, function (e){
+            if (nav.expandTaped){
+                e.preventDefault();
+                return false;
+            }
+            
+        });
     },
     /**
      * _setColumn 自定义的成员函数，
@@ -4874,6 +6050,12 @@ $.widget('blend.nav', {
         /**
          * 处理column范围
          */
+        var columnNum = ($el[0].className).match(/blend\-nav\-column\-(\d{1})/);
+        
+        if (columnNum){
+            nav.options.column = parseInt(columnNum[1], 10);
+        }
+        
         if (nav.options.column && $.inArray(nav.options.column, nav.columnRange) === -1) {
             nav.options.column = 3;
         }
@@ -4919,7 +6101,8 @@ $.widget('blend.nav', {
         var $el = nav.element;
         var len = nav.$items.length;
         var row = Math.ceil(len / nav.options.column);
-        var height = nav.$items.eq(0).height() * row ;
+        var rowHeight = nav.$items.eq(0).height() > 0 ? nav.$items.eq(0).height() : option.rowHeight;
+        var height = rowHeight * row ;
         $el.css('height', height);
         $el.find('.' + nav.expandClass).remove();
         nav.$items.removeClass(this.hideClass);
@@ -4939,6 +6122,7 @@ $.widget('blend.nav', {
      */
     _addExpand: function (max) {
         var nav = this;
+        var option = nav.options;
         nav.$items.each(function (i) {
             var $this = $(this);
             if (i >= max - nav.options.column) {
@@ -4953,7 +6137,9 @@ $.widget('blend.nav', {
                 $this.removeClass(nav.hideClass);
             }
         });
-        var height = nav.$items.eq(0).height();
+        //var height = nav.$items.eq(0).height();
+        var height = nav.$items.eq(0).height() > 0 ? nav.$items.eq(0).height() : option.rowHeight;
+        
         nav.element.css('height', height * nav.options.row);
         if (nav.element.find('.' + nav.expandClass).length === 1) {
             nav.element.find('.' + nav.expandClass).removeClass(nav.expandedClass).html(nav.options.expand);
@@ -4974,9 +6160,6 @@ $.widget('blend.nav', {
         nav.element.off('click.nav', '.' + nav.expandClass);
     }
 });
-})(Zepto)
-;(function($){
-
 })(Zepto)
 ;(function($){/* globals NAMESPACE */
 /* eslint-disable fecs-camelcase */
@@ -5003,7 +6186,7 @@ $.widget('blend.sidenav', {
 	 * @private
 	 */
     _init: function () {
-
+        FastClick.attach(this.element[0]);
         var opts = this.options;
 
         this.navId = 'wZijePQW';   // 自定义， 用于建立nav和content一一对应关系
@@ -5070,7 +6253,7 @@ $.widget('blend.sidenav', {
         var flag = false;
         
         var $nav = this.$el.find('.blend-sidenav-nav ul');
-        $nav.on('tap, click', function (e) {
+        $nav.on('click', function (e) {
             e.preventDefault();
             $nav.find('li').removeClass('blend-sidenav-active');
             var target = e.target || e.srcElement;
@@ -5109,7 +6292,9 @@ $.widget('blend.slider', {
         speed: 2000,                // 切换的时间间隔
         theme: 'd2',
         // needDirection: false,    // 是否需要左右切换的按钮
-        ratio: 'normal'     // normal/wide/square/small
+        ratio: 'normal' ,    // normal/wide/square/small
+        wrapWidth: document.body && document.body.clientWidth,
+        bgImg: false        // 是否加默认背景图，默认不加
     },
     /**
      * 创建组件调用一次
@@ -5117,6 +6302,7 @@ $.widget('blend.slider', {
      */
     _create: function () {
 
+        var win = window;
         /**
          * this.element 组件对应的单个 Zepto/jQuery 对象
          */
@@ -5130,6 +6316,7 @@ $.widget('blend.slider', {
         switch (options.ratio) {
             case 'wide':
             case 'square':
+            case 'middle':
             case 'small':
                 ratioClass += options.ratio;
                 break;
@@ -5137,24 +6324,58 @@ $.widget('blend.slider', {
                 ratioClass += 'normal';
         }
         $el.addClass(ratioClass);
+        // 添加背景图样式
+        if (options.bgImg){
+            $el.addClass(NAMESPACE + "slider-bgImg");
+        }
         $el.css("visibility", "visible");
 
         this.$container = $el;
         this.$ul = $el.find('.' + NAMESPACE + 'slides');
         this.$li = $el.find('.' + NAMESPACE + 'slides li');
 
-        this._liWidth = this.$li.width();
-        this._liHeight = this.$li.height();
-        this._liLength = this.$li.length;
+        // this._liWidth = this.$li.width() ? this.$li.width() : options.wrapWidth;
+        // this._liHeight = this.$li.height();
+        // this._liLength = this.$li.length;
+        //
+        // this.autoScroll = null;     // 自动播放interval对象
+        // this._index = 0;            // 当前幻灯片位置
+        //
+        // if (typeof options.theme !== 'string') {
+        //     options.theme = 'default';
+        // }
+        //
+        // this._addComponents(options.theme);
 
-        this.autoScroll = null;     // 自动播放interval对象
-        this._index = 0;            // 当前幻灯片位置
+        var that = this;
 
-        if (typeof options.theme !== 'string') {
-            options.theme = 'default';
+        var whichEvent = ('orientationchange' in win) ? 'orientationchange' : 'resize';
+        win.addEventListener(whichEvent, function(){
+            // that._init();
+            that._liWidth = that.$li.width() ? that.$li.width() : opts.wrapWidth;
+            that._liHeight = that.$li.height();
+            that._spin();
+        },false);
+
+        return;
+
+        /*
+        * matchMedia.addListener() 在安卓手机上支持太差，先注释掉
+        if (typeof win.matchMedia !== 'undefined') {
+          var mql = win.matchMedia("(orientation: portrait)");
+          alert(mql);
+          mql.addListener(function(m) {
+            alert('matchMedia');
+          	if(m.matches) {} else {}
+          });
+        }else{
+          var whichEvent = ('orientationchange' in win) ? 'orientationchange' : 'resize';
+          win.addEventListener(whichEvent, function(){
+              alert('orientationchange or resize ---');
+          },false);
         }
+        */
 
-        this._addComponents(options.theme);
     },
     /**
      * _init 初始化的时候调用
@@ -5162,10 +6383,34 @@ $.widget('blend.slider', {
      */
     _init: function () {
 
+
+
+
         var opts = this.options;
         var that = this;
         var $ul = this.$ul;
         var $li = this.$li;
+
+
+
+        this._liWidth = $li.width() ? $li.width() : opts.wrapWidth;
+        this._liHeight = $li.height();
+        this._liLength = $li.length;
+
+        this.autoScroll = null;     // 自动播放interval对象
+        this._index = 0;            // 当前幻灯片位置
+
+        if (typeof opts.theme !== 'string') {
+            opts.theme = 'default';
+        }
+
+        this._addComponents(opts.theme);
+
+
+        // 如果speed是0, 不自动滚动
+        if (this.options.speed <= 0) {
+            this.options.autoSwipe = false;
+        }
 
         /**
          * 连续滚动，需要复制dom
@@ -5186,7 +6431,7 @@ $.widget('blend.slider', {
 
         that._fnAutoSwipe();
         this._initEvent();
-        // this._initView();
+
     },
     /**
      * 初始化事件绑定
@@ -5195,16 +6440,24 @@ $.widget('blend.slider', {
     _initEvent: function () {
         var that = this;
         var device = this._device();
+        var evReady = true;
+        var isPhone = (/AppleWebKit.*Mobile/i.test(navigator.userAgent) || /MIDP|SymbianOS|NOKIA|SAMSUNG|LG|NEC|TCL|Alcatel|BIRD|DBTEL|Dopod|PHILIPS|HAIER|LENOVO|MOT-|Nokia|SonyEricsson|SIE-|Amoi|ZTE/.test(navigator.userAgent));
         // 绑定触摸
         that.$ul[0].addEventListener(device.startEvt, function (evt){
-            that.startX = device.hasTouch ? evt.targetTouches[0].pageX : evt.pageX;
-            that.startY = device.hasTouch ? evt.targetTouches[0].pageY : evt.pageY;
+            if (evReady){
+                that.startX = device.hasTouch ? evt.targetTouches[0].pageX : evt.pageX;
+                that.startY = device.hasTouch ? evt.targetTouches[0].pageY : evt.pageY;
+                //evt.preventDefault();
 
-            that.$ul[0].addEventListener(device.moveEvt, moveHandler, false);
-            that.$ul[0].addEventListener(device.endEvt, endHandler, false);
+                that.$ul[0].addEventListener(device.moveEvt, moveHandler, false);
+                that.$ul[0].addEventListener(device.endEvt, endHandler, false);
+
+                evReady = false;
+            }
         }, false);
-        
+
         function moveHandler (evt){
+            $("#prevent").html("");
             if (that.options.autoSwipe) {
                 clearInterval(that.autoScroll);
             }
@@ -5217,10 +6470,18 @@ $.widget('blend.slider', {
 
             that._transitionHandle(that.$ul, 0);
 
-            if (that.options.axisX) {
+            //横向滑动阻止默认事件
+
+            if (Math.abs(that.moveY) > 20 && that.options.axisX){
+                endHandler(evt);
+            }else if (Math.abs(that.moveX) > 7 || !isPhone){
                 evt.preventDefault();
+            }
+
+            if (that.options.axisX && Math.abs(that.moveX) > Math.abs(that.moveY)) {
                 that._fnTranslate(that.$ul, -(that._liWidth * (parseInt(that._index, 10)) - that.moveX));
             }
+
         };
 
         function endHandler (evt){
@@ -5235,28 +6496,36 @@ $.widget('blend.slider', {
             }
 
             // 距离小
-            if (Math.abs(that.moveDistance) <= _touchDistance) {
+            if (opts.axisX && Math.abs(that.moveY) > Math.abs(that.moveX)){
                 that._fnScroll(.3);
-            }
-            else {
+                that._fnAutoSwipe();
+            }else if (Math.abs(that.moveDistance) <= _touchDistance) {
+                that._fnScroll(.3);
+            }else {
                 // 距离大
                 // 手指触摸上一屏滚动
                 if (that.moveDistance > _touchDistance) {
                     that._fnMovePrev();
-                    that._fnAutoSwipe();
                 // 手指触摸下一屏滚动
                 }
                 else if (that.moveDistance < -_touchDistance) {
                     that._fnMoveNext();
-                    that._fnAutoSwipe();
                 }
+                that._fnAutoSwipe();
             }
+
+
 
             that.moveX = 0;
             that.moveY = 0;
+            evReady = true;
 
             that.$ul[0].removeEventListener(device.moveEvt, moveHandler, false);
             that.$ul[0].removeEventListener(device.endEvt, endHandler, false);
+            if(!isPhone){
+                evt.preventDefault();
+                return false;
+            }
         };
     },
     /**
@@ -5281,6 +6550,10 @@ $.widget('blend.slider', {
         }
         if (theme === 'd2') {
             $el.addClass(NAMESPACE + 'slider-title');
+            this._initControl();
+        }
+        if (theme === 's1') {
+            $el.addClass(NAMESPACE + 'slider-special');
             this._initControl();
         }
     },
@@ -5391,6 +6664,7 @@ $.widget('blend.slider', {
     _fnAutoSwipe: function () {
         var that = this;
         var opts = this.options;
+        clearInterval(this.autoScroll);
 
         if (opts.autoSwipe) {
             this.autoScroll = setInterval(function () {
@@ -5487,6 +6761,27 @@ $.widget('blend.slider', {
         };
     },
     /**
+     * 屏幕旋转后的处理函数
+     */
+    _spin: function () {
+      var that = this;
+      var $ul = this.$ul;
+      var $li = this.$li;
+      var options = this.options;
+
+      this.paused();
+      var widthOrHeight = options.axisX ? this._liWidth : this._liHeight;
+      this._fnTranslate($ul.children().first(), widthOrHeight * -1);
+      this._fnTranslate($ul.children().last(), widthOrHeight * that._liLength);
+
+      // 给初始图片定位
+      $li.each(function (i) {
+          that._fnTranslate($(this), (options.axisX ? that._liWidth : that._liHeight) * i);
+      });
+      this.start();
+      this.next();
+    },
+    /**
      * 下一张幻灯片
      * @return {Object} 当前Zepto对象
      */
@@ -5521,6 +6816,310 @@ $.widget('blend.slider', {
 ;(function($){/* globals NAMESPACE */
 /* eslint-disable fecs-camelcase */
 /**
+ * @file suggest 组件
+ */
+
+$.widget('blend.suggest', {
+    /**
+     * 组件的默认选项
+     */
+    options: {
+        inputClass: NAMESPACE + 'suggest-wd',
+        delBtnClass: NAMESPACE + 'suggest-delete',
+        listClass: NAMESPACE + 'suggest-list',
+        // 下拉提示接口url
+        url: "",
+        // 接口中搜索词的变量名
+        wd: "wd",
+        // 接口中的回调函数变量名
+        callback: "callback",
+        // 接口成功回调
+        success: function (){},
+        // 接口失败回调
+        errorFn: function (){}
+
+    },
+    /**
+     * _create 创建组件时调用一次
+     */
+    _create: function () {
+    },
+    /**
+     * _init 初始化的时候调用
+     */
+    _init: function () {
+        var _suggest = this;
+        _suggest._initEvent();
+    },
+    /**
+     * 初始化事件
+     * @private
+     */
+    _initEvent: function () {
+        var _suggest = this;
+        var $el = _suggest.element;
+        var options = _suggest.options;
+        _suggest.$input = $el.find('.' + options.inputClass);
+        options.url && (_suggest.$list = $el.find('.' + options.listClass));
+        _suggest.$del = $el.find('.' + options.delBtnClass);
+        
+        //输入内容时显示提示list
+        _suggest.$input.on("input", function (){
+            var txt = this.value;
+            if (txt === ""){
+                _suggest.$del.hide();
+                options.url && _suggest.$list.hide();
+            }else{
+                _suggest.$del.show();
+                options.url && _suggest.renderSuggest(txt);
+            }
+        });
+        
+        //点击叉，删除搜索词
+        _suggest.$del.on("click", function (){
+            _suggest.$input.val("");
+            $(this).hide();
+            options.url && _suggest.$list.hide();
+        });
+    },
+    /**
+     * 渲染提示list
+     * @private
+     */
+    renderSuggest: function (txt) {
+        //this.element.find('.' + this.options.listClass).show();
+
+        // 接口要求:url是接口url, 参数：wd=输入的文字, callback=回调
+        var _url = this.options.url;
+        var _wd = this.options.wd;
+        var _callback = this.options.callback;
+        var _success = this.options.success;
+        var _error = this.options.errorFn;
+        _url += _url.indexOf("?") > -1 ? "&" + _callback + "=?" : "?" + _callback + "=?";
+        var json = {};
+        json[_wd] = encodeURIComponent(txt);
+        $.ajax({
+            url: _url,
+            data: json,
+            dataType: 'jsonp',
+            success: function(data, status, xhr) {
+                _success(data, status, xhr);
+            },
+            error: function(xhr, type) {
+                _error(xhr, type);
+            }
+        });
+    }
+
+});
+})(Zepto)
+;(function($){/* globals NAMESPACE */
+/**
+ * @function suspend
+ * @name suspend
+ * @param {Object} options 组件配置（以下参数为配置项）
+ * @param {String} options.addCSSClass (可选, 默认值: \'\') dialog最外层自定义class
+ * @param {String} options.maskTapClose (可选, 默认值: false) mask被点击后是否关闭dialog
+ * @example
+ *  1、$('.suspend').suspend(), $('.suspend')为dialog自定义节点,并不是dialog的容器,切记
+ *  2、var suspend = $.blend.suspend({
+ *                      addCSSClass: '',
+ *                      maskTapClose: true,
+ *                  });
+ *        suspend.show();
+ */
+'use strict';
+$.widget('blend.suspend', {
+    /*配置项*/
+    options: {
+        maskTapClose: true,    // 点击mask，关闭suspend
+        bodyNoScroll: true
+    },
+    /**
+     * _create 创建组件时调用一次
+     * @private
+     */
+    _create: function () {
+        var options = this.options;
+
+        this.addCSSClass = options.addCSSClass ? options.addCSSClass : '';
+        this.maskTapClose = options.maskTapClose;
+        this.bodyNoScroll = options.bodyNoScroll;
+        this._maskDom = $('.' + NAMESPACE + 'suspend-mask');
+        this.$el = this.element;
+    },
+    /**
+     * 初始化
+     * @private
+     */
+    _init: function () {
+        this._bindEvent();
+
+        this.bodyNoScroll && this._handleScroll();
+    },
+    /**
+     * 为suspend相关元素添加事件
+     * @private
+     */
+    _bindEvent: function () {
+        var self = this;
+        this.$el.on('click', '.' + NAMESPACE + 'suspend-close', function () {
+            self.hide();
+        });
+
+        this._maskDom.on('click', function (e) {
+            e.preventDefault();
+            self.maskTapClose && self.hide();
+        }).on('touchmove', function (e) {
+            e.preventDefault();
+        });
+    },
+    /**
+     * 定义事件派发
+     * @param {Object} event 事件对象
+     * @private
+     */
+    _trigger: function (eventName) {
+        this.$el.trigger('suspend:' + eventName);
+    },
+    _preventDefault: function (e) {
+        e = e || window.event;
+        e.preventDefault && e.preventDefault();
+        e.returnValue = false;
+    },
+    _stopPropagation: function (e) {
+        e = e || window.event;
+        e.stopPropagation && e.stopPropagation();
+        e.returnValue = false;
+    },
+    _disableScroll: function () {
+        var _preventDefault = this._preventDefault;
+        document.addEventListener('mousewheel', _preventDefault);
+        document.addEventListener('touchmove', _preventDefault);
+    },
+    _enableScroll: function () {
+        var _preventDefault = this._preventDefault;
+        document.removeEventListener('mousewheel', _preventDefault);
+        document.removeEventListener('touchmove', _preventDefault);
+    },
+    _handleScroll: function () {
+        var startX, startY;
+        var ele = this.$el.find('.' + NAMESPACE + 'suspend-body')[0];
+
+        if (!ele) {
+            this.bodyNoScroll = false;
+            return;
+        }
+
+        ele.addEventListener('touchstart',function(e){
+
+            startX = e.touches[0].pageX;
+            startY = e.touches[0].pageY;
+        });
+
+
+        ele.addEventListener('touchmove',function(e){
+
+
+            e.stopPropagation();
+
+            var deltaX = e.touches[0].pageX - startX;
+            var deltaY = e.touches[0].pageY - startY;
+
+
+            if(Math.abs(deltaY) < Math.abs(deltaX)){
+                e.preventDefault();
+                return false;
+            }
+
+            //console.log(ele.clientHeight + '+' + ele.scrollTop + ':' +ele.scrollHeight);
+            if (ele.clientHeight + ele.scrollTop >= ele.scrollHeight) {
+
+                if(deltaY < 0) {
+                    e.preventDefault();
+                    return false;
+                }                
+
+            }else if(ele.scrollTop <= 0) {
+                if(deltaY > 0) {
+                    e.preventDefault();
+                    return false;
+                }
+            }
+        });
+    },
+    /**
+     * 显示suspend
+     * @param {string} content 指定show方法要展示的body内容
+     * @return {Object}
+     */
+    show: function () {
+        var self = this;
+
+        this.bodyNoScroll && this._disableScroll();
+
+        this.mask();
+        self.$el.show();
+        window.setTimeout(function () {
+
+            self.$el.addClass(NAMESPACE + 'suspend-show');
+            self._trigger('show');
+            
+        },50);
+
+        return this.$el;
+    },
+    /**
+     * 关闭dialog
+     * @return {Object}
+     */
+    hide: function () {
+        var self = this;
+
+        this.bodyNoScroll && this._enableScroll();
+
+        self.unmask();
+        self.$el.hide();
+        window.setTimeout(function () {
+            self.$el.removeClass(NAMESPACE + 'suspend-show');
+            self._trigger('hide');
+        }, 0);
+
+	    
+        return this.$el;
+    },
+    /**
+     * 销毁dialog
+     * @return {Object}
+     */
+    destroy: function () {
+        this.unmask();
+        if (this.$el) {
+            this.$el.remove();
+            this.$el = [];
+        }
+        return this.$el;
+    },
+    /**
+     * 显示mask
+     * @param {number} opacity 透明度
+     */
+    mask: function () {
+        var self = this;
+        this._maskDom.show();
+    },
+    /**
+     * 关闭mask
+     */
+    unmask: function () {
+        this._maskDom.hide();
+        // this._maskDom.off('touchmove click').hide();
+    }
+});
+})(Zepto)
+;(function($){/* globals NAMESPACE */
+/* eslint-disable fecs-camelcase */
+/**
  * 单选滑块组件
  *
  * @file switch.js
@@ -5537,12 +7136,14 @@ $.widget('blend.switch', {
      * @private
      */
     _create: function () {
+        this.$el = this.element;
     },
     /**
      * 初始化组件/
      * @private
      */
     _init: function () {
+        FastClick.attach(this.element[0]);
         var options = this.options;
 
         this.switches = this.element;
@@ -5555,11 +7156,13 @@ $.widget('blend.switch', {
     _initEvent: function (){
         var that = this;
         
-        this.switches.on('tap, click', function () {
+        this.switches.on('click', function () {
             if ($(this).hasClass(that.options.classNameActive)) {
                 $(this).removeClass(that.options.classNameActive);
+                $(this).trigger('switch:off');
             }else {
                 $(this).addClass(that.options.classNameActive);
+                $(this).trigger('switch:on');
             }
         });
     }
@@ -5596,8 +7199,27 @@ $.widget('blend.tab', {
         tab.$contentItem = $el.find(tab._itemContentSelector);
         tab.$activeEle = $el.find(tab._itemActiveSelector);
         // 计算active宽度和位置
-        tab.itemWidth = this.$headerItem.eq(0).width();
-        tab.$activeEle.css('width', this.itemWidth);
+        tab.itemWidth = tab.$headerItem.eq(0).width();
+        $el.removeClass(tab.options.animateClass);
+
+        if (tab.itemWidth){
+            tab.$activeEle.css('width', tab.itemWidth);
+            setTimeout(function (){
+                $el.addClass(tab.options.animateClass);
+            }, 100);
+        }else{
+            var tabTimer = setInterval(function (){
+                tab.itemWidth = tab.$headerItem.eq(0).width();
+                if (tab.itemWidth){
+                    clearInterval(tabTimer);
+                    tab.$activeEle.css('width', tab.itemWidth);
+                    setTimeout(function (){
+                        $el.addClass(tab.options.animateClass);
+                    }, 100);
+                }
+            }, 100);
+        }
+        
         tab.itemOffsetX = 0;
         tab.current = 0;
         this._uix = null;
@@ -5606,6 +7228,7 @@ $.widget('blend.tab', {
      * _init 初始化的时候调用
      */
     _init: function () { 
+        FastClick.attach(this.element[0]);
           if (IS_UIX) {
             this._UIXInit();
           } else {
@@ -5678,7 +7301,7 @@ $.widget('blend.tab', {
         }
         tab._switch(tab.options.start);
 
-        if (tab.options.animate) {
+        if (tab.options.animate && tab.$headerItem.eq(0).width() > 0) {
             // 初始化的时候不出动画
             setTimeout(function () {
                 tab.element.addClass(tab.options.animateClass);
@@ -5730,7 +7353,8 @@ $.widget('blend.tab', {
         }
 
         var left = tab.itemOffsetX + tab.current * tab.itemWidth;
-        tab.$activeEle.css('left', left);
+        tab.$activeEle.css({'transform': "translateX(" + left + "px)", '-webkit-transform': "translateX(" + left + "px)"});
+        //tab.$activeEle.css('left', left);
         tab.$contentItem.hide();
         tab.$contentItem.eq(tab.current).show();
         tab.$headerItem.removeClass(tab.options.activeClass);
@@ -5872,6 +7496,8 @@ $.widget('blend.topnav', {
      * @private
      */
     _init: function () {
+
+        FastClick.attach(this.element[0]);
         var opt = this.options;
         this.$el = this.element;
 
@@ -5922,7 +7548,7 @@ $.widget('blend.topnav', {
         for (var i = 0, len = $items.length; i < len; i++) {
             var $item = $items.eq(i);
 
-            $item.on('tap, click', function (e) {
+            $item.on('click', function (e) {
                 var $this = $(this);
                 var $ul = $(this).find('ul');
                 var $span = $(this).find('span');

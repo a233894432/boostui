@@ -39,6 +39,8 @@ $.widget('blend.gallery', {
      */
     _init: function () {
 
+        //FastClick.attach(this.element[0]);
+
         var me = this;
 
         if (IS_UIX) {
@@ -62,6 +64,7 @@ $.widget('blend.gallery', {
             this._renderHTML();
             this._bindHandler();
         }
+
     },
     /**
      * 初始化 uix gallery
@@ -330,6 +333,7 @@ $.widget('blend.gallery', {
                 // that.mask.style.visibility = "hidden";
                 that.mask.style.display = 'none';
                 that._hideMenu();
+                that.$el.trigger('gallery:close');
             };
         })(this));
 
@@ -737,7 +741,6 @@ $.widget('blend.gallery', {
      * @param  {number} val 图片索引
      */
     show: function (val) {
-
         if (IS_UIX && this._uix) {
             this._uix.show();
             return;
@@ -776,7 +779,7 @@ $.widget('blend.gallery', {
      */
     hide: function () {
         this.mask.style.display = 'none';
-        this.mask.style.visibility = 'hidden';
+        this.mask.style.visibility = 'hidden';   
     },
     extend: function (plugin, main) {
         if (!main) {

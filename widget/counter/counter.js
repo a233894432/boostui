@@ -57,6 +57,7 @@ $.widget('blend.counter', {
      * @private
      */
     _init: function () {
+        FastClick.attach(this.element[0]);
         var options = this.options;
         var minValue = Number(options.minValue);
         var maxValue = Number(options.maxValue);
@@ -66,6 +67,7 @@ $.widget('blend.counter', {
 
         this._initValue();
         this._initEvent();
+
     },
 
     /**
@@ -101,6 +103,7 @@ $.widget('blend.counter', {
         var thisObj = this;
         var step = Number(this.options.step);
         step = isNaN(step) ? 1 : step;
+
         this.$plus.on('click', function () {
             thisObj.value(thisObj._value + step);
         });

@@ -28,8 +28,27 @@ $.widget('blend.tab', {
         tab.$contentItem = $el.find(tab._itemContentSelector);
         tab.$activeEle = $el.find(tab._itemActiveSelector);
         // 计算active宽度和位置
-        tab.itemWidth = this.$headerItem.eq(0).width();
-        tab.$activeEle.css('width', this.itemWidth);
+        tab.itemWidth = tab.$headerItem.eq(0).width();
+        $el.removeClass(tab.options.animateClass);
+
+        if (tab.itemWidth){
+            tab.$activeEle.css('width', tab.itemWidth);
+            setTimeout(function (){
+                $el.addClass(tab.options.animateClass);
+            }, 100);
+        }else{
+            var tabTimer = setInterval(function (){
+                tab.itemWidth = tab.$headerItem.eq(0).width();
+                if (tab.itemWidth){
+                    clearInterval(tabTimer);
+                    tab.$activeEle.css('width', tab.itemWidth);
+                    setTimeout(function (){
+                        $el.addClass(tab.options.animateClass);
+                    }, 100);
+                }
+            }, 100);
+        }
+        
         tab.itemOffsetX = 0;
         tab.current = 0;
         this._uix = null;
@@ -38,6 +57,7 @@ $.widget('blend.tab', {
      * _init 初始化的时候调用
      */
     _init: function () { 
+        FastClick.attach(this.element[0]);
           if (IS_UIX) {
             this._UIXInit();
           } else {
@@ -110,7 +130,7 @@ $.widget('blend.tab', {
         }
         tab._switch(tab.options.start);
 
-        if (tab.options.animate) {
+        if (tab.options.animate && tab.$headerItem.eq(0).width() > 0) {
             // 初始化的时候不出动画
             setTimeout(function () {
                 tab.element.addClass(tab.options.animateClass);
@@ -162,7 +182,8 @@ $.widget('blend.tab', {
         }
 
         var left = tab.itemOffsetX + tab.current * tab.itemWidth;
-        tab.$activeEle.css('left', left);
+        tab.$activeEle.css({'transform': "translateX(" + left + "px)", '-webkit-transform': "translateX(" + left + "px)"});
+        //tab.$activeEle.css('left', left);
         tab.$contentItem.hide();
         tab.$contentItem.eq(tab.current).show();
         tab.$headerItem.removeClass(tab.options.activeClass);

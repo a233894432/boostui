@@ -17,12 +17,14 @@ $.widget('blend.switch', {
      * @private
      */
     _create: function () {
+        this.$el = this.element;
     },
     /**
      * 初始化组件/
      * @private
      */
     _init: function () {
+        FastClick.attach(this.element[0]);
         var options = this.options;
 
         this.switches = this.element;
@@ -35,11 +37,13 @@ $.widget('blend.switch', {
     _initEvent: function (){
         var that = this;
         
-        this.switches.on('tap, click', function () {
+        this.switches.on('click', function () {
             if ($(this).hasClass(that.options.classNameActive)) {
                 $(this).removeClass(that.options.classNameActive);
+                $(this).trigger('switch:off');
             }else {
                 $(this).addClass(that.options.classNameActive);
+                $(this).trigger('switch:on');
             }
         });
     }

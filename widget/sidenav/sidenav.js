@@ -23,7 +23,7 @@ $.widget('blend.sidenav', {
 	 * @private
 	 */
     _init: function () {
-
+        FastClick.attach(this.element[0]);
         var opts = this.options;
 
         this.navId = 'wZijePQW';   // 自定义， 用于建立nav和content一一对应关系
@@ -90,7 +90,7 @@ $.widget('blend.sidenav', {
         var flag = false;
         
         var $nav = this.$el.find('.blend-sidenav-nav ul');
-        $nav.on('tap, click', function (e) {
+        $nav.on('click', function (e) {
             e.preventDefault();
             $nav.find('li').removeClass('blend-sidenav-active');
             var target = e.target || e.srcElement;

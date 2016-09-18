@@ -40,6 +40,7 @@ $.widget('blend.checkbox', {
      * _init 初始化的时候调用
      */
     _init: function () {
+        FastClick.attach(this.element[0]);
         this._initEvent();
     },
     _checkGroup: function (curElem) {
@@ -107,14 +108,14 @@ $.widget('blend.checkbox', {
     _initEvent: function () {
 
         var that = this;
-
-        this.$group.on('tap, click', function () {
+        
+        this.$group.on('click', function () {
             if (that._trigger('beforechecked', null, {})) {
                 var curElem = $(this);
                 that._checkGroup(curElem);
             }
         });
-        this.$label.on('tap, click', function () {
+        this.$label.on('click', function () {
             if (that._trigger('beforechecked', null, {})) {
                 var curElem = that.$group.eq([that.$label.index($(this))]);
                 that._checkGroup(curElem);

@@ -44,7 +44,8 @@ $.widget('blend.dialog', {
         confirmClass: '',
         maskTapClose: false,    // 点击mask，关闭dialog
         renderType: 0,            // 渲染方式，0 是DOM渲染，1是js渲染,2是自定义
-        btnStatus: 3             // 控制cancel按钮(2)和confirm按钮(1) 的和值
+        btnStatus: 3,             // 控制cancel按钮(2)和confirm按钮(1) 的和值
+        needAnimate: true         // 弹框出现的时候是否需要动画
     },
     /**
      * _create 创建组件时调用一次
@@ -70,6 +71,7 @@ $.widget('blend.dialog', {
         this.useCustom = (this.renderType === 2) ? true : false;    // renderType为2表示使用自定义dom
         this.btnStatus = options.btnStatus;
         this.$el = this.element;
+        this.needAnimate = options.needAnimate;
     },
     /**
      * 初始化
@@ -77,6 +79,8 @@ $.widget('blend.dialog', {
      */
     _init: function () {
         var me = this;
+
+        //FastClick.attach(this.element[0]);
         /**
          * UIX 环境的初始化
          */
@@ -87,7 +91,7 @@ $.widget('blend.dialog', {
              $.dynamicLoad (function() {
                 require(['src/blend'], function (blend) {
                     me._uix = me._createUIXDialog(blend);
-                 
+
                 });
             });
             return;
@@ -99,6 +103,7 @@ $.widget('blend.dialog', {
             this.$el = this._createHTMLDialog();
             this._bindEvent();
         }
+
     },
     /**
      * 返回随机的id
@@ -219,10 +224,11 @@ $.widget('blend.dialog', {
         $(window).on('orientationchange resize', function () {
             self.setPosition();
         });
-        this.$el.on('tap, click', '.' + (this.cancelClass || NAMESPACE + 'dialog-cancel'), function () {
+
+        this.$el.on('click', '.' + (this.cancelClass || NAMESPACE + 'dialog-cancel'), function () {
             self._trigger('cancel');
             self.autoCloseDone && self.hide();
-        }).on('tap, click', '.' + (this.doneClass || NAMESPACE + 'dialog-confirm'), function () {
+        }).on('click', '.' + (this.doneClass || NAMESPACE + 'dialog-confirm'), function () {
             self._trigger('confirm');
             self.autoCloseDone && self.hide();
         }).on('dialog.close', function () {
@@ -247,8 +253,8 @@ $.widget('blend.dialog', {
         var dom = '<div class="' + NAMESPACE + 'dialog-header">' + this.title + '</div>'
                       + '<div class="' + NAMESPACE + 'dialog-body">' + this.content + '</div>'
                       + '<div class="' + NAMESPACE + 'dialog-footer">'
-                         +  '<a href="javascript:void(0);" class="' + this.confirmClass + ' ' + NAMESPACE + 'dialog-confirm ' + NAMESPACE + 'dialog-btn">' + this.confirmText + '</a>'
                          +  '<a href="javascript:void(0);" class="' + this.cancelClass + ' ' + NAMESPACE + 'dialog-cancel ' + NAMESPACE + 'dialog-btn">' + this.cancelText + '</a>'
+                         +  '<a href="javascript:void(0);" class="' + this.confirmClass + ' ' + NAMESPACE + 'dialog-confirm ' + NAMESPACE + 'dialog-btn">' + this.confirmText + '</a>'
                       + '</div>';
         this.$el.append(dom);
         return this.$el;
@@ -277,6 +283,9 @@ $.widget('blend.dialog', {
         this.mask(0.5);
         (content) && this.$content.html(content);
         window.setTimeout(function () {
+            if (!self.needAnimate) {
+              self.$el.addClass(NAMESPACE + 'dialog-no-transition');  // 添加class，将过渡时间设置为0
+            }
             self.$el.addClass(NAMESPACE + 'dialog-show');
             self._trigger('show');
             self.lock = false;
@@ -320,7 +329,7 @@ $.widget('blend.dialog', {
     mask: function (opacity) {
         var self = this;
         opacity = opacity ? ' style="opacity:' + opacity + ';"' : '';
-        var bodyHeight = document.body.clientHeight || document.body.offsetHeight;
+        var bodyHeight = Math.max(document.body.scrollHeight, document.body.clientHeight, document.documentElement.clientHeight, window.screen.height);
         (this._maskDom = $('<div class="' + NAMESPACE + 'dialog-mask"' + opacity + '></div>')).prependTo(this.$body);
         this._maskDom.css('height', bodyHeight);
         this._maskDom.on('click', function (e) {
